@@ -1,0 +1,125 @@
+# Публикация релиза без ручных шагов. Вызывается из build.yml после сборки; можно запустить
+# и вручную (Actions → Publish → Run workflow), например повторно после сбоя.
+# Перед публикацией проверяет, что в черновике есть установщики и latest.json для всех платформ
+# с версией из тега и что каждый файл обновления и его подпись загружены. Тогда снимает «черновик»
+# и делает релиз последним (Latest) — с этого момента установленные копии получают обновление.
+# Описание релиза берётся из .github/release-notes/<версия>.md (ветка main Ravva/Axiom) и общего
+# блока install.md — исправленные после тега заметки попадут в релиз при повторном запуске.
+# Затем запускает пересборку сайта (workflow Web в Ravva/Axiom): «История версий» читает релизы при сборке.
+name: Publish
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Тег релиза, например v0.4.0"
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Тег релиза, например v0.4.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Ravva/Axiom
+          ref: main
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+          sparse-checkout: .github/release-notes
+      - name: Проверка и публикация
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          bash .github/release-notes/compose.sh "$version" > notes.md
+          info=$(gh release view "$TAG" -R "$REPO" --json isDraft,assets)
+          names=$(jq -r '.assets[].name' <<<"$info")
+
+          need() {
+            if ! grep -qE "$1" <<<"$names"; then
+              echo "::error::В релизе $TAG нет файла: $2"
+              missing=1
+            fi
+          }
+          missing=0
+          need "_x64-setup\.exe$" "установщик Windows (.exe)"
+          need "_x64_en-US\.msi$|_x64_.*\.msi$" "установщик Windows (.msi)"
+          need "_aarch64\.dmg$" "macOS Apple Silicon (.dmg)"
+          need "_x64\.dmg$" "macOS Intel (.dmg)"
+          need "\.AppImage$" "Linux (.AppImage)"
+          need "\.deb$" "Linux (.deb)"
+          need "\.rpm$" "Linux (.rpm)"
+          need "^latest\.json$" "latest.json"
+          [ "$missing" = 0 ] || exit 1
+
+          gh release download "$TAG" -R "$REPO" -p latest.json -O latest.json --clobber
+          got=$(jq -r .version latest.json)
+          if [ "$got" != "$version" ]; then
+            echo "::error::latest.json: версия $got, а тег $TAG"
+            exit 1
+          fi
+          for p in windows-x86_64 darwin-aarch64 darwin-x86_64 linux-x86_64; do
+            url=$(jq -r --arg p "$p" '.platforms[$p].url // empty' latest.json)
+            sig=$(jq -r --arg p "$p" '.platforms[$p].signature // empty' latest.json)
+            if [ -z "$url" ] || [ -z "$sig" ]; then
+              echo "::error::latest.json: нет обновления или подписи для $p"
+              exit 1
+            fi
+            file=$(basename "$url")
+            if ! grep -qxF "$file" <<<"$names" || ! grep -qxF "$file.sig" <<<"$names"; then
+              echo "::error::Для $p в релизе нет $file или $file.sig"
+              exit 1
+            fi
+          done
+
+          # GitHub иногда отвечает 5xx, хотя изменение уже применено: повторяем —
+          # повторная правка безвредна.
+          retry() {
+            for i in 1 2 3 4 5; do
+              "$@" && return 0
+              echo "::warning::Попытка $i не удалась, повтор через $((i * 15)) с"
+              sleep $((i * 15))
+            done
+            return 1
+          }
+          retry gh release edit "$TAG" -R "$REPO" --notes-file notes.md
+          if [ "$(jq -r .isDraft <<<"$info")" = "true" ]; then
+            retry gh release edit "$TAG" -R "$REPO" --draft=false --latest
+            echo "Релиз $TAG опубликован: https://github.com/$REPO/releases/tag/$TAG"
+          else
+            retry gh release edit "$TAG" -R "$REPO" --latest
+            echo "Релиз $TAG уже опубликован, отмечен как последний"
+          fi
+          {
+            echo "### Axiom $TAG опубликован"
+            echo "https://github.com/$REPO/releases/tag/$TAG"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  site:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Пересборка сайта (история версий)
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+        run: |
+          # GitHub иногда отвечает 5xx — повторяем.
+          for i in 1 2 3 4 5; do
+            gh workflow run web.yml --ref main -R Ravva/Axiom && exit 0
+            echo "::warning::Попытка $i не удалась, повтор через $((i * 15)) с"
+            sleep $((i * 15))
+          done
+          exit 1
