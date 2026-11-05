@@ -153,12 +153,30 @@ jobs:
         if: steps.want.outputs.run
         run: bun install --frozen-lockfile
 
+      - name: Ключ подписи
+        if: steps.want.outputs.run
+        shell: bash
+        env:
+          RAW_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          # Ключ — одна строка base64 (содержимое файла .key). Вставленный с переносами строк
+          # или в виде текста minisign («untrusted comment: …») приводится к этому виду.
+          key=$(printf '%s' "$RAW_KEY" | tr -d '\r')
+          case "$key" in
+            "untrusted comment:"*) key=$(printf '%s\n' "$key" | base64 | tr -d '\n') ;;
+            *) key=$(printf '%s' "$key" | tr -d ' \t\n') ;;
+          esac
+          echo "::add-mask::$key"
+          echo "TAURI_SIGNING_PRIVATE_KEY=$key" >> "$GITHUB_ENV"
+          # Пароль — без переносов строк по краям (частая ошибка при вставке).
+          pass=$(printf '%s' "$RAW_PASSWORD" | tr -d '\r\n')
+          [ -n "$pass" ] && echo "::add-mask::$pass"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$pass" >> "$GITHUB_ENV"
+
       - name: Пробная сборка
         if: steps.want.outputs.run && inputs.dry
         shell: bash
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: bunx tauri build ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
 
       - uses: actions/upload-artifact@v4
@@ -175,8 +193,6 @@ jobs:
         if: steps.want.outputs.run && !inputs.dry
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           owner: Ravva
           repo: Axiom-releases
@@ -229,11 +245,28 @@ jobs:
       - name: Зависимости фронтенда
         run: bun install --frozen-lockfile
 
+      - name: Ключ подписи
+        shell: bash
+        env:
+          RAW_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          # Ключ — одна строка base64 (содержимое файла .key). Вставленный с переносами строк
+          # или в виде текста minisign («untrusted comment: …») приводится к этому виду.
+          key=$(printf '%s' "$RAW_KEY" | tr -d '\r')
+          case "$key" in
+            "untrusted comment:"*) key=$(printf '%s\n' "$key" | base64 | tr -d '\n') ;;
+            *) key=$(printf '%s' "$key" | tr -d ' \t\n') ;;
+          esac
+          echo "::add-mask::$key"
+          echo "TAURI_SIGNING_PRIVATE_KEY=$key" >> "$GITHUB_ENV"
+          # Пароль — без переносов строк по краям (частая ошибка при вставке).
+          pass=$(printf '%s' "$RAW_PASSWORD" | tr -d '\r\n')
+          [ -n "$pass" ] && echo "::add-mask::$pass"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$pass" >> "$GITHUB_ENV"
+
       - name: Пробная сборка
         if: inputs.dry
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           bunx tauri build
           echo "Нужна glibc не новее: $(objdump -T src-tauri/target/release/axiom-app | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
@@ -252,8 +285,6 @@ jobs:
         if: ${{ !inputs.dry }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           owner: Ravva
           repo: Axiom-releases
