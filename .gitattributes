@@ -1,0 +1,3 @@
+# В архивах исходников релиза не нужны служебные файлы автоматизации.
+.github export-ignore
+.gitattributes export-ignore
