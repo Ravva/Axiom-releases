@@ -272,7 +272,7 @@ jobs:
       - name: Пробная сборка
         if: inputs.dry
         run: |
-          bunx tauri build --bundles appimage,deb
+          bunx tauri build --bundles appimage,deb,rpm
           echo "Нужна glibc не новее: $(objdump -T src-tauri/target/release/axiom-app | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
 
       - uses: actions/upload-artifact@v4
@@ -282,6 +282,7 @@ jobs:
           path: |
             src-tauri/target/release/bundle/appimage/*.AppImage
             src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
           retention-days: 14
 
       - uses: tauri-apps/tauri-action@v0
@@ -300,8 +301,8 @@ jobs:
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
           tauriScript: bunx tauri
-          # Linux: AppImage с зависимостями для МОС 12 (сборка в ROSA 2021.1) и .deb; RPM не публикуется.
-          args: --bundles appimage,deb
+          # Linux: AppImage с зависимостями для МОС 12 (сборка в ROSA 2021.1), .deb; .rpm требует МОС 13 и новее.
+          args: --bundles appimage,deb,rpm
 
   publish:
     needs: [build, linux]

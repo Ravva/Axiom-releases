@@ -61,6 +61,7 @@ jobs:
           need "_x64\.dmg$" "macOS Intel (.dmg)"
           need "\.AppImage$" "Linux (.AppImage)"
           need "\.deb$" "Linux (.deb)"
+          need "\.rpm$" "Linux (.rpm)"
           need "^latest\.json$" "latest.json"
           [ "$missing" = 0 ] || exit 1
 
