@@ -1,0 +1,136 @@
+# Выкладка веб-сервиса в Appwrite (лендинг, админка, функции).
+#
+# Workflow живёт в публичном репозитории Ravva/Axiom-releases, потому что в закрытом
+# Ravva/Axiom Actions не работают (лимит кредитов исчерпан, репозиторий закрытый).
+# Исходники веб-части закрыты: берутся из Ravva/Axiom по токену SOURCE_TOKEN.
+# Секреты: SOURCE_TOKEN (Ravva/Axiom: Contents — чтение), APPWRITE_API_KEY (проект axiom).
+#
+# Запуск: Actions → Web → Run workflow (вручную) либо автоматически после публикации
+# релиза (job site в publish.yml вызывает этот workflow).
+name: Web
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Ravva/Axiom
+          ref: main
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+      # Дизайн-система (Tailwind, Radix, шрифты) берётся из корня репозитория.
+      - name: Зависимости
+        run: |
+          bun install --frozen-lockfile
+          cd web && bun install --frozen-lockfile
+      - name: Тесты (пакет лицензий с эталоном Rust, функции, админка)
+        working-directory: web
+        run: bun run test
+      - name: Типы
+        working-directory: web
+        run: |
+          bun run typecheck
+          cd site && bun run check
+      - name: Сборка функций
+        working-directory: web/functions
+        run: bun run build
+      - name: Сборка админки
+        working-directory: web/admin
+        run: bun run build
+      - name: Сборка лендинга
+        working-directory: web/site
+        env:
+          PUBLIC_CONTACT_EMAIL: ${{ vars.PUBLIC_CONTACT_EMAIL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          retention-days: 7
+          path: |
+            web/functions/dist
+            web/admin/dist
+            web/site/dist
+
+  deploy:
+    needs: build
+    if: (github.event_name == 'workflow_dispatch') || (github.ref == 'refs/heads/main' && vars.APPWRITE_DEPLOY == '1')
+    runs-on: ubuntu-24.04
+    environment: production
+    env:
+      APPWRITE_NO_UPDATE_CHECK: 1
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Ravva/Axiom
+          ref: main
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      # Версия CLI закреплена: она должна поддерживать версию сервера Appwrite.
+      - name: Appwrite CLI
+        run: npm install -g appwrite-cli@28.10.2
+      - name: Подключение
+        working-directory: web
+        env:
+          APPWRITE_API_KEY: ${{ secrets.APPWRITE_API_KEY }}
+        run: appwrite client --endpoint "$(jq -r .endpoint appwrite.config.json)" --key "$APPWRITE_API_KEY"
+      # push all/settings требуют входа в консоль, поэтому — по типам ресурсов.
+      # Переменные функций (.env) не трогаются: они задаются в консоли.
+      # Таблицы — своим скриптом через /v1/tablesdb: CLI создаёт колонки через устаретые
+      # /v1/databases/.../attributes, которым нужно право collections.write (консоль его не выдаёт).
+      - name: Деплой схемы
+        id: schema
+        working-directory: web
+        env:
+          APPWRITE_API_KEY: ${{ secrets.APPWRITE_API_KEY }}
+        run: node scripts/push-tables.mjs
+      # CLI при ошибке ресурса пишет «✗ Error», но выходит с кодом 0 — проверяем вывод сами.
+      # Шаги независимы: при сбое одного остальные всё равно выполняются, чтобы видеть все ошибки.
+      - name: Деплой бакетов и команды
+        if: ${{ !cancelled() && steps.schema.outcome == 'success' }}
+        working-directory: web
+        run: |
+          fail=0
+          for r in bucket team; do
+            appwrite push "$r" --all --force 2>&1 | tee "$RUNNER_TEMP/push.log"
+            if grep -q "✗ Error" "$RUNNER_TEMP/push.log"; then fail=1; fi
+          done
+          exit $fail
+      - name: Деплой функций
+        # CLI ждёт окончания сборки; если сборка на сервере зависла — не висеть часами.
+        timeout-minutes: 15
+        if: ${{ !cancelled() && steps.schema.outcome == 'success' }}
+        working-directory: web
+        run: |
+          appwrite push function --all --force 2>&1 | tee "$RUNNER_TEMP/push.log"
+          if grep -q "✗ Error" "$RUNNER_TEMP/push.log"; then exit 1; fi
+      - name: Деплой сайтов
+        # CLI ждёт окончания сборки; если сборка на сервере зависла — не висеть часами.
+        timeout-minutes: 15
+        if: ${{ !cancelled() && steps.schema.outcome == 'success' }}
+        working-directory: web
+        run: |
+          appwrite push site --all --force 2>&1 | tee "$RUNNER_TEMP/push.log"
+          if grep -q "✗ Error" "$RUNNER_TEMP/push.log"; then exit 1; fi

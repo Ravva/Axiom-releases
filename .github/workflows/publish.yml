@@ -116,9 +116,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
         run: |
-          # GitHub иногда отвечает 5xx — повторяем.
+          # Web лежит здесь же, в публичном репозитории: в закрытом Ravva/Axiom Actions
+          # не работают (исчерпан лимит кредитов), поэтому вызываем свой workflow.
           for i in 1 2 3 4 5; do
-            gh workflow run web.yml --ref main -R Ravva/Axiom && exit 0
+            gh workflow run web.yml --ref main -R Ravva/Axiom-releases && exit 0
             echo "::warning::Попытка $i не удалась, повтор через $((i * 15)) с"
             sleep $((i * 15))
           done
