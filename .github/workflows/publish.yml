@@ -108,19 +108,10 @@ jobs:
             echo "https://github.com/$REPO/releases/tag/$TAG"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # Пересборка сайта после публикации: «История версий» читает релизы при сборке.
+  # Вызываем workflow напрямую, а не через gh workflow run: SOURCE_TOKEN не имеет
+  # права Actions в этом репозитории, и запуск через API отклонялся (HTTP 403).
   site:
     needs: publish
-    runs-on: ubuntu-latest
-    steps:
-      - name: Пересборка сайта (история версий)
-        env:
-          GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
-        run: |
-          # Web лежит здесь же, в публичном репозитории: в закрытом Ravva/Axiom Actions
-          # не работают (исчерпан лимит кредитов), поэтому вызываем свой workflow.
-          for i in 1 2 3 4 5; do
-            gh workflow run web.yml --ref main -R Ravva/Axiom-releases && exit 0
-            echo "::warning::Попытка $i не удалась, повтор через $((i * 15)) с"
-            sleep $((i * 15))
-          done
-          exit 1
+    uses: ./.github/workflows/web.yml
+    secrets: inherit

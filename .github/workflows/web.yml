@@ -10,6 +10,8 @@
 name: Web
 
 on:
+  # Вызывается из publish.yml после публикации релиза (job site) и вручную.
+  workflow_call:
   workflow_dispatch:
 
 concurrency:
@@ -70,7 +72,8 @@ jobs:
 
   deploy:
     needs: build
-    if: (github.event_name == 'workflow_dispatch') || (github.ref == 'refs/heads/main' && vars.APPWRITE_DEPLOY == '1')
+    # При вызове из publish.yml (workflow_call) — тоже выкладываем.
+    if: (github.event_name == 'workflow_dispatch') || (github.event_name == 'workflow_call') || (github.ref == 'refs/heads/main' && vars.APPWRITE_DEPLOY == '1')
     runs-on: ubuntu-24.04
     environment: production
     env:
