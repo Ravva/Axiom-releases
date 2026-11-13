@@ -316,5 +316,6 @@ jobs:
     if: ${{ !cancelled() && !inputs.dry && !contains(needs.*.result, 'failure') }}
     uses: ./.github/workflows/publish.yml
     with:
-      tag: ${{ env.TAG }}
+      # В job с uses: контекст env недоступен — берём значение напрямую.
+      tag: ${{ inputs.tag || github.ref_name }}
     secrets: inherit
