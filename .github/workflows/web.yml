@@ -72,8 +72,11 @@ jobs:
 
   deploy:
     needs: build
-    # При вызове из publish.yml (workflow_call) — тоже выкладываем.
-    if: (github.event_name == 'workflow_dispatch') || (github.event_name == 'workflow_call') || (github.ref == 'refs/heads/main' && vars.APPWRITE_DEPLOY == '1')
+    # Workflow запускается только из publish.yml (после публикации релиза) или вручную,
+    # поэтому выкладываем всегда, как только сборка удалась. Проверять event_name нельзя:
+    # в вызываемом workflow контекст github — от вызывающего (там 'push'), и условие
+    # с event_name не срабатывало — job пропускался.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-24.04
     environment: production
     env:
