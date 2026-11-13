@@ -213,7 +213,6 @@ jobs:
           releaseBody: ${{ needs.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
-          includeUpdaterJson: true
           # Общая запись windows-x86_64 в latest.json — установщик NSIS (без прав администратора).
           updaterJsonPreferNsis: true
           tauriScript: bunx tauri
@@ -305,14 +304,49 @@ jobs:
           releaseBody: ${{ needs.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
-          includeUpdaterJson: true
           updaterJsonPreferNsis: true
           tauriScript: bunx tauri
           # Linux: AppImage с зависимостями для МОС 12 (сборка в ROSA 2021.1), .deb; .rpm требует МОС 13 и новее.
           args: --bundles appimage,deb,rpm
 
-  publish:
+  # latest.json для автообновления. Раньше его генерировал tauri-action в каждом
+  # платформенном job: четыре платформы параллельно писали и удаляли один файл
+  # в черновике релиза, и сборка падала с «Not Found — get a release asset».
+  # Теперь файл собирается здесь, после всех сборок, из подписей загруженных файлов.
+  updater:
     needs: [build, linux]
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && !inputs.dry }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Ravva/Axiom
+          ref: ${{ env.TAG }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+          sparse-checkout: .github/release-notes
+      - uses: actions/checkout@v5
+        with:
+          path: releases-repo
+      - name: Сборка latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          bash releases-repo/scripts/build-latest-json.sh "${{ env.TAG }}"
+      - name: Загрузка latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Файл, созданный tauri-action при загрузке артефактов, заменяем своим.
+          gh release delete "${{ env.TAG }}" -R "$REPO" --pattern "latest.json" --yes || true
+          gh release upload "${{ env.TAG }}" latest.json -R "$REPO" --clobber
+
+  publish:
+    needs: [build, linux, updater]
     if: ${{ !cancelled() && !inputs.dry && !contains(needs.*.result, 'failure') }}
     uses: ./.github/workflows/publish.yml
     with:
