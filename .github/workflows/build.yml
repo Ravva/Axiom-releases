@@ -57,14 +57,14 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: Ravva/Axiom
-          ref: ${{ TAG }}
+          ref: ${{ env.TAG }}
           token: ${{ secrets.SOURCE_TOKEN }}
           persist-credentials: false
           sparse-checkout: .github/release-notes
       - name: Список изменений
         id: notes
         run: |
-          bash .github/release-notes/compose.sh "${{ TAG }}" > notes.md
+          bash .github/release-notes/compose.sh "${{ env.TAG }}" > notes.md
           {
             echo "body<<AXIOM_NOTES_EOF"
             cat notes.md
@@ -80,7 +80,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: Ravva/Axiom
-          ref: ${{ TAG }}
+          ref: ${{ env.TAG }}
           token: ${{ secrets.SOURCE_TOKEN }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
@@ -142,7 +142,7 @@ jobs:
         if: steps.want.outputs.run
         with:
           repository: Ravva/Axiom
-          ref: ${{ TAG }}
+          ref: ${{ env.TAG }}
           token: ${{ secrets.SOURCE_TOKEN }}
           persist-credentials: false
 
@@ -208,8 +208,8 @@ jobs:
           owner: Ravva
           repo: Axiom-releases
           releaseCommitish: main
-          tagName: ${{ TAG }}
-          releaseName: Axiom ${{ TAG }}
+          tagName: ${{ env.TAG }}
+          releaseName: Axiom ${{ env.TAG }}
           releaseBody: ${{ needs.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
@@ -240,7 +240,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: Ravva/Axiom
-          ref: ${{ TAG }}
+          ref: ${{ env.TAG }}
           token: ${{ secrets.SOURCE_TOKEN }}
           persist-credentials: false
 
@@ -300,8 +300,8 @@ jobs:
           owner: Ravva
           repo: Axiom-releases
           releaseCommitish: main
-          tagName: ${{ TAG }}
-          releaseName: Axiom ${{ TAG }}
+          tagName: ${{ env.TAG }}
+          releaseName: Axiom ${{ env.TAG }}
           releaseBody: ${{ needs.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
@@ -316,5 +316,5 @@ jobs:
     if: ${{ !cancelled() && !inputs.dry && !contains(needs.*.result, 'failure') }}
     uses: ./.github/workflows/publish.yml
     with:
-      tag: ${{ TAG }}
+      tag: ${{ env.TAG }}
     secrets: inherit
