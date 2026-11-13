@@ -42,8 +42,11 @@ concurrency:
   cancel-in-progress: false
 
 # Тег версии: при ручном запуске — из inputs, при пуше тега — имя тега.
+# При пуше тега inputs пусты, поэтому у платформ и раннера есть значения по умолчанию.
 env:
   TAG: ${{ inputs.tag || github.ref_name }}
+  PLATFORMS: ${{ inputs.platforms || 'all' }}
+  MAC_ARM_RUNNER: ${{ inputs.mac_arm_runner || 'macos-latest' }}
 
 jobs:
   notes:
@@ -112,7 +115,7 @@ jobs:
         include:
           - name: macos-arm
             group: macos
-            runner: ${{ inputs.mac_arm_runner }}
+            runner: ${{ env.MAC_ARM_RUNNER }}
             target: aarch64-apple-darwin
           - name: macos-intel
             group: macos
@@ -129,7 +132,7 @@ jobs:
         id: want
         shell: bash
         run: |
-          p="${{ inputs.platforms }}"
+          p="${{ env.PLATFORMS }}"
           if [ "$p" = all ] || [ "$p" = "${{ matrix.name }}" ] || [ "$p" = "${{ matrix.group }}" ]; then
             echo "run=1" >> "$GITHUB_OUTPUT"
           else
@@ -222,7 +225,7 @@ jobs:
   # и на новых дистрибутивах.
   linux:
     needs: [checks, notes]
-    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && (inputs.platforms == 'all' || inputs.platforms == 'linux') }}
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && (env.PLATFORMS == 'all' || env.PLATFORMS == 'linux') }}
     runs-on: ubuntu-latest
     container: rosalab/rosa2021.1
     env:
